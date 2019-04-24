@@ -37,7 +37,7 @@ implementation 'com.wuyr:litepager:1.0.0'
 ### 添加子View方式：
 #### XML
 
-```xml
+``` xml
     <com.wuyr.litepager.LitePager
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
@@ -61,7 +61,7 @@ implementation 'com.wuyr:litepager:1.0.0'
 
 #### 或者
 
-```java
+``` java
     LitePager litePager = ...;
     View child1 = ...;
     View child2 = ...;
