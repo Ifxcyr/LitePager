@@ -28,7 +28,7 @@ implementation 'com.wuyr:litepager:1.0.0'
 |Name|Format|Description|
 |----|-----|-----------|
 |orientation|enum (默认: horizontal)<br>**horizontal**(水平)<br>**vertical**(垂直)|方向|
-|flingDuration|integer|动画时长|
+|flingDuration|integer (默认: 400)|动画时长|
 |maxScale|float (默认: 1)|**最大**缩放比例|
 |minScale|float (默认: 0.8)|**最小**缩放比例|
 |maxAlpha|float (默认: 1)|**最大**不透明度|
