@@ -5,10 +5,13 @@
             <enum name="horizontal" value="0" />
             <enum name="vertical" value="1" />
         </attr>
+
         <attr name="flingDuration" format="integer" />
-        <attr name="minScale" format="float" />
-        <attr name="minAlpha" format="float" />
-        <attr name="maxScale" format="float" />
-        <attr name="maxAlpha" format="float" />
+        <attr name="bottomScale" format="float" />
+        <attr name="bottomAlpha" format="float" />
+        <attr name="middleScale" format="float" />
+        <attr name="middleAlpha" format="float" />
+        <attr name="topScale" format="float" />
+        <attr name="topAlpha" format="float" />
     </declare-styleable>
 </resources>

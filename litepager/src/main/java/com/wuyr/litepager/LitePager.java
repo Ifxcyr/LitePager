@@ -24,6 +24,8 @@ import android.view.animation.Interpolator;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author wuyr
@@ -32,6 +34,16 @@ import java.lang.annotation.RetentionPolicy;
  */
 @SuppressWarnings("unused")
 public class LitePager extends ViewGroup {
+
+    private static final float DEFAULT_TOP_SCALE = 1;
+    private static final float DEFAULT_TOP_ALPHA = 1;
+
+    private static final float DEFAULT_MIDDLE_SCALE = .8F;
+    private static final float DEFAULT_MIDDLE_ALPHA = .4F;
+
+    private static final float DEFAULT_BOTTOM_SCALE = .6F;
+    private static final float DEFAULT_BOTTOM_ALPHA = .2F;
+
     @IntDef({ORIENTATION_HORIZONTAL, ORIENTATION_VERTICAL})
     @Retention(RetentionPolicy.SOURCE)
     private @interface Orientation {
@@ -58,8 +70,8 @@ public class LitePager extends ViewGroup {
     private float mLastX, mLastY;//上一次的触摸坐标
     private float mDownX, mDownY;//按下时的触摸坐标
     private long mFlingDuration;//自动调整的动画时长
-    private float mMinScale, mMaxScale;//最小和最大缩放比例
-    private float mMinAlpha, mMaxAlpha;//最小和最大不透明度
+    private float mTopScale, mMiddleScale, mBottomScale;//缩放比例
+    private float mTopAlpha, mMiddleAlpha, mBottomAlpha;//不透明度
     private float mOffsetX, mOffsetY;//水平和垂直偏移量
     private float mOffsetPercent;//偏移的百分比
     private boolean isReordered;//是否已经交换过层级顺序
@@ -89,10 +101,15 @@ public class LitePager extends ViewGroup {
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.LitePager, defStyleAttr, 0);
         mOrientation = a.getInteger(R.styleable.LitePager_orientation, ORIENTATION_HORIZONTAL);
         mFlingDuration = a.getInteger(R.styleable.LitePager_flingDuration, 400);
-        mMaxScale = a.getFloat(R.styleable.LitePager_maxScale, 1);
-        mMinScale = a.getFloat(R.styleable.LitePager_minScale, .8F);
-        mMaxAlpha = a.getFloat(R.styleable.LitePager_maxAlpha, 1);
-        mMinAlpha = a.getFloat(R.styleable.LitePager_minAlpha, .4F);
+
+        mTopScale = a.getFloat(R.styleable.LitePager_topScale, DEFAULT_TOP_SCALE);
+        mTopAlpha = a.getFloat(R.styleable.LitePager_topAlpha, DEFAULT_TOP_ALPHA);
+
+        mMiddleScale = a.getFloat(R.styleable.LitePager_middleScale, DEFAULT_MIDDLE_SCALE);
+        mMiddleAlpha = a.getFloat(R.styleable.LitePager_middleAlpha, DEFAULT_MIDDLE_ALPHA);
+
+        mBottomScale = a.getFloat(R.styleable.LitePager_bottomScale, DEFAULT_BOTTOM_SCALE);
+        mBottomAlpha = a.getFloat(R.styleable.LitePager_bottomAlpha, DEFAULT_BOTTOM_ALPHA);
         a.recycle();
         fixOverflow();
     }
@@ -101,30 +118,21 @@ public class LitePager extends ViewGroup {
      * 调整这些最大值和最小值，使他们在0~1范围内
      */
     private void fixOverflow() {
-        if (mMinScale > 1) {
-            mMinScale = 1;
-        } else if (mMinScale < 0) {
-            mMinScale = 0;
-        }
-        if (mMinAlpha > 1) {
-            mMinAlpha = 1;
-        } else if (mMinAlpha < 0) {
-            mMinAlpha = 0;
-        }
-        if (mMaxScale > 1) {
-            mMaxScale = 1;
-        } else if (mMaxScale < 0) {
-            mMaxScale = 0;
-        }
-        if (mMaxAlpha > 1) {
-            mMaxAlpha = 1;
-        } else if (mMaxAlpha < 0) {
-            mMaxAlpha = 0;
-        }
+        mMiddleScale = fixOverflow(mMiddleScale);
+        mMiddleAlpha = fixOverflow(mMiddleAlpha);
+        mTopScale = fixOverflow(mTopScale);
+        mTopAlpha = fixOverflow(mTopAlpha);
+        mBottomScale = fixOverflow(mBottomScale);
+        mBottomAlpha = fixOverflow(mBottomAlpha);
+    }
+
+    private float fixOverflow(float value) {
+        return value > 1 ? 1 : value < 0 ? 0 : value;
     }
 
     /**
      * 批量添加子View
+     *
      * @param layouts 子View布局
      */
     public LitePager addViews(@NonNull @LayoutRes int... layouts) {
@@ -137,6 +145,7 @@ public class LitePager extends ViewGroup {
 
     /**
      * 批量添加子View
+     *
      * @param views 目标子View
      */
     public LitePager addViews(@NonNull View... views) {
@@ -154,29 +163,51 @@ public class LitePager extends ViewGroup {
 
     /**
      * 选中子View
+     *
      * @param target 目标子View
      */
     public void setSelection(View target) {
         setSelection(indexOfChild(target));
     }
 
+    private boolean isNeedPlayTwice;
+    private int mSelectedIndex;
+
     /**
      * 根据索引选中子View
      */
     public void setSelection(int index) {
         if (indexOfChild(getChildAt(getChildCount() - 1)) == index ||
-                getChildCount() == 0 || (mAnimator != null && mAnimator.isRunning())) {
+                getChildCount() == 0 || (mAnimator != null && mAnimator.isRunning() && !isNeedPlayTwice)) {
             return;
         }
         final float start, end;
         start = isHorizontal() ? mOffsetX : mOffsetY;
-        if (index == 0) {
-            end = isHorizontal() ? getWidth() : getHeight();
-        } else if (index == 1) {
-            end = isHorizontal() ? -getWidth() : -getHeight();
+        if (is5Child()) {
+            switch (index) {
+                case 0:
+                    isNeedPlayTwice = index != mSelectedIndex;
+                case 2:
+                    end = isHorizontal() ? getWidth() : getHeight();
+                    break;
+                case 1:
+                    isNeedPlayTwice = index != mSelectedIndex;
+                case 3:
+                    end = isHorizontal() ? -getWidth() : -getHeight();
+                    break;
+                default:
+                    return;
+            }
         } else {
-            return;
+            if (index == 0) {
+                end = isHorizontal() ? getWidth() : getHeight();
+            } else if (index == 1) {
+                end = isHorizontal() ? -getWidth() : -getHeight();
+            } else {
+                return;
+            }
         }
+        mSelectedIndex = index;
         startValueAnimator(start, end);
     }
 
@@ -258,6 +289,7 @@ public class LitePager extends ViewGroup {
         @Override
         public void onAnimationCancel(Animator animation) {
             isCanceled = true;
+            isNeedPlayTwice = false;
         }
 
         @Override
@@ -268,13 +300,18 @@ public class LitePager extends ViewGroup {
         @Override
         public void onAnimationEnd(Animator animation) {
             if (!isCanceled) {
-                mCurrentState = STATE_IDLE;
-                isAnotherActionDown = false;
-                if (mOnScrollListener != null) {
-                    mOnScrollListener.onStateChanged(mCurrentState);
-                }
-                if (mOnItemSelectedListener != null) {
-                    mOnItemSelectedListener.onItemSelected(getSelectedChild());
+                if (isNeedPlayTwice) {
+                    setSelection(mSelectedIndex);
+                } else {
+                    mSelectedIndex = -1;
+                    mCurrentState = STATE_IDLE;
+                    isAnotherActionDown = false;
+                    if (mOnScrollListener != null) {
+                        mOnScrollListener.onStateChanged(mCurrentState);
+                    }
+                    if (mOnItemSelectedListener != null) {
+                        mOnItemSelectedListener.onItemSelected(getSelectedChild());
+                    }
                 }
             }
         }
@@ -298,7 +335,6 @@ public class LitePager extends ViewGroup {
             case MotionEvent.ACTION_POINTER_DOWN:
                 isAnotherActionDown = true;
                 playFixingAnimation();
-                requestDisallowInterceptTouchEvent(false);
                 return false;
             case MotionEvent.ACTION_DOWN:
                 if (isSettling()) {
@@ -308,7 +344,6 @@ public class LitePager extends ViewGroup {
                 isBeingDragged = true;
             case MotionEvent.ACTION_MOVE:
                 if (isAnotherActionDown) {
-                    requestDisallowInterceptTouchEvent(false);
                     return false;
                 }
                 abortAnimation();
@@ -323,10 +358,10 @@ public class LitePager extends ViewGroup {
             case MotionEvent.ACTION_OUTSIDE:
                 //因为isSettling方法不能收到isBeingDragged=false
                 if (isSettling()) {
-                    isBeingDragged = false;
+                    resetDragFlag();
                     break;
                 }
-                isBeingDragged = false;
+                resetDragFlag();
                 handleActionUp(x, y);
                 break;
             default:
@@ -364,16 +399,52 @@ public class LitePager extends ViewGroup {
     private void updateChildOrder() {
         if (Math.abs(mOffsetPercent) > .5F) {
             if (!isReordered) {
-                exchangeOrder(1, 2);
+                if (is5Child()) {
+                    if (mOffsetPercent > 0) {
+                        reOrder(0, 3, 1, 4, 2);
+                    } else {
+                        reOrder(2, 0, 4, 1, 3);
+                    }
+                } else {
+                    exchangeOrder(1, 2);
+                }
                 isReordered = true;
             }
         } else {
             if (isReordered) {
-                exchangeOrder(1, 2);
+                if (is5Child()) {
+                    if (mOffsetPercent > 0) {
+                        reOrder(2, 0, 4, 1, 3);
+                    } else {
+                        reOrder(0, 3, 1, 4, 2);
+                    }
+                } else {
+                    exchangeOrder(1, 2);
+                }
                 isReordered = false;
             }
         }
     }
+
+    private List<View> mTempViewList = new ArrayList<>(5);
+
+    private void reOrder(int... indexes) {
+        mTempViewList.clear();
+        for (int index : indexes) {
+            if (index >= getChildCount()) {
+                break;
+            }
+            mTempViewList.add(getChildAt(index));
+        }
+        detachAllViewsFromParent();
+        for (int i = 0; i < mTempViewList.size(); i++) {
+            View tmp = mTempViewList.get(i);
+            attachViewToParent(tmp, i, tmp.getLayoutParams());
+        }
+        mTempViewList.clear();
+        invalidate();
+    }
+
 
     /**
      * 更新子View的起始索引和目标索引
@@ -393,18 +464,40 @@ public class LitePager extends ViewGroup {
         for (int i = 0; i < getChildCount(); i++) {
             View child = getChildAt(i);
             LayoutParams lp = (LayoutParams) child.getLayoutParams();
-            switch (lp.from) {
-                case 0:
-                    lp.to = mOffsetPercent > 0 ? 2 : 1;
-                    break;
-                case 1:
-                    lp.to = mOffsetPercent > 0 ? 0 : 2;
-                    break;
-                case 2:
-                    lp.to = mOffsetPercent > 0 ? 1 : 0;
-                    break;
-                default:
-                    break;
+            if (is5Child()) {
+                switch (lp.from) {
+                    case 0:
+                        lp.to = mOffsetPercent > 0 ? 2 : 1;
+                        break;
+                    case 1:
+                        lp.to = mOffsetPercent > 0 ? 0 : 3;
+                        break;
+                    case 2:
+                        lp.to = mOffsetPercent > 0 ? 4 : 0;
+                        break;
+                    case 3:
+                        lp.to = mOffsetPercent > 0 ? 1 : 4;
+                        break;
+                    case 4:
+                        lp.to = mOffsetPercent > 0 ? 3 : 2;
+                        break;
+                    default:
+                        break;
+                }
+            } else {
+                switch (lp.from) {
+                    case 0:
+                        lp.to = mOffsetPercent > 0 ? 2 : 1;
+                        break;
+                    case 1:
+                        lp.to = mOffsetPercent > 0 ? 0 : 2;
+                        break;
+                    case 2:
+                        lp.to = mOffsetPercent > 0 ? 1 : 0;
+                        break;
+                    default:
+                        break;
+                }
             }
         }
     }
@@ -461,13 +554,21 @@ public class LitePager extends ViewGroup {
     }
 
     @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+            getParent().requestDisallowInterceptTouchEvent(true);
+        } else if (ev.getAction() == MotionEvent.ACTION_UP) {
+            getParent().requestDisallowInterceptTouchEvent(false);
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
+    @Override
     public boolean onInterceptTouchEvent(MotionEvent event) {
         if (!isEnabled()) {
             return false;
         }
         if ((event.getAction() == MotionEvent.ACTION_MOVE && isBeingDragged) || super.onInterceptTouchEvent(event)) {
-            //如果已经开始了拖动，则继续占用此次事件
-            requestDisallowInterceptTouchEvent(true);
             return true;
         }
         float x = event.getX(), y = event.getY();
@@ -475,7 +576,6 @@ public class LitePager extends ViewGroup {
             case MotionEvent.ACTION_POINTER_DOWN:
                 isAnotherActionDown = true;
                 playFixingAnimation();
-                requestDisallowInterceptTouchEvent(false);
                 return false;
             case MotionEvent.ACTION_DOWN:
                 mLastX = mDownX = x;
@@ -487,7 +587,6 @@ public class LitePager extends ViewGroup {
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (isAnotherActionDown) {
-                    requestDisallowInterceptTouchEvent(false);
                     return false;
                 }
                 float offsetX = x - mLastX;
@@ -504,14 +603,18 @@ public class LitePager extends ViewGroup {
             case MotionEvent.ACTION_OUTSIDE:
                 //因为isSettling方法不能收到isBeingDragged=false
                 if (isSettling()) {
-                    isBeingDragged = false;
+                    resetDragFlag();
                     break;
                 }
-                isBeingDragged = false;
+                resetDragFlag();
                 return handleActionUp(x, y);
         }
-        requestDisallowInterceptTouchEvent(isBeingDragged);
         return isBeingDragged;
+    }
+
+    private void resetDragFlag() {
+        isBeingDragged = false;
+        isAnotherActionDown = false;
     }
 
     /**
@@ -542,9 +645,8 @@ public class LitePager extends ViewGroup {
             //查找被点击的子View
             View hitView = findHitView(x, y);
             if (hitView != null) {
-                if (indexOfChild(hitView) == 2) {
+                if (indexOfChild(hitView) == (is5Child() ? 4 : 2)) {
                     //点击第一个子view不用播放动画，直接不拦截
-                    requestDisallowInterceptTouchEvent(false);
                     return false;
                 } else {
                     LayoutParams lp = (LayoutParams) hitView.getLayoutParams();
@@ -556,7 +658,6 @@ public class LitePager extends ViewGroup {
         }
         //手指在空白地方松开
         playFixingAnimation();
-        requestDisallowInterceptTouchEvent(false);
         return false;
     }
 
@@ -577,51 +678,39 @@ public class LitePager extends ViewGroup {
         int heightMode = MeasureSpec.getMode(heightMeasureSpec);
 
         int childCount = getChildCount();
-        int width = 0, height = 0;
+        int width, height;
         LayoutParams layoutParams;
 
         if (widthMode == MeasureSpec.EXACTLY) {
             width = widthSize;
         } else {
+            //如果是垂直方向的话，刚好相反：宽度取最大的子View宽
+            int maxChildWidth = 0;
+            for (int i = 0; i < childCount; i++) {
+                View child = getChildAt(i);
+                layoutParams = (LayoutParams) child.getLayoutParams();
+                maxChildWidth = Math.max(maxChildWidth, child.getMeasuredWidth()
+                        + layoutParams.leftMargin + layoutParams.rightMargin);
+            }
+            width = maxChildWidth;
             if (isHorizontal()) {
-                //如果宽度设置了wrap_content，则取全部子View的宽度和
-                for (int i = 0; i < childCount; i++) {
-                    View child = getChildAt(i);
-                    layoutParams = (LayoutParams) child.getLayoutParams();
-                    width += child.getMeasuredWidth() + layoutParams.leftMargin + layoutParams.rightMargin;
-                }
-            } else {
-                //如果是垂直方向的话，刚好相反：宽度取最大的子View宽
-                int maxChildWidth = 0;
-                for (int i = 0; i < childCount; i++) {
-                    View child = getChildAt(i);
-                    layoutParams = (LayoutParams) child.getLayoutParams();
-                    maxChildWidth = Math.max(maxChildWidth, child.getMeasuredWidth()
-                            + layoutParams.leftMargin + layoutParams.rightMargin);
-                }
-                width = maxChildWidth;
+                width *= 2.5;
             }
         }
         if (heightMode == MeasureSpec.EXACTLY) {
             height = heightSize;
         } else {
-            if (isHorizontal()) {
-                //如果高度设置了wrap_content，则取最大的子View高
-                int maxChildHeight = 0;
-                for (int i = 0; i < childCount; i++) {
-                    View child = getChildAt(i);
-                    layoutParams = (LayoutParams) child.getLayoutParams();
-                    maxChildHeight = Math.max(maxChildHeight, child.getMeasuredHeight()
-                            + layoutParams.topMargin + layoutParams.bottomMargin);
-                }
-                height = maxChildHeight;
-            } else {
-                //垂直方向刚好相反
-                for (int i = 0; i < childCount; i++) {
-                    View child = getChildAt(i);
-                    layoutParams = (LayoutParams) child.getLayoutParams();
-                    height += child.getMeasuredHeight() + layoutParams.topMargin + layoutParams.bottomMargin;
-                }
+            //如果高度设置了wrap_content，则取最大的子View高
+            int maxChildHeight = 0;
+            for (int i = 0; i < childCount; i++) {
+                View child = getChildAt(i);
+                layoutParams = (LayoutParams) child.getLayoutParams();
+                maxChildHeight = Math.max(maxChildHeight, child.getMeasuredHeight()
+                        + layoutParams.topMargin + layoutParams.bottomMargin);
+            }
+            height = maxChildHeight;
+            if (!isHorizontal()) {
+                height *= 2.5;
             }
         }
 
@@ -641,8 +730,14 @@ public class LitePager extends ViewGroup {
      * 根据当前滑动距离计算出目标子View的基准线
      */
     private int getBaselineByChild(View child) {
-        int baseLine = isHorizontal() ? getHorizontalBaseLine(child) : getVerticalBaseLine(child);
-        updateAlphaAndScale(child);
+        int baseLine;
+        if (is5Child()) {
+            baseLine = isHorizontal() ? getHorizontalBaseLineBy5Child(child) : getVerticalBaseLineBy5Child(child);
+            updateAlphaAndScaleBy5Child(child);
+        } else {
+            baseLine = isHorizontal() ? getHorizontalBaseLine(child) : getVerticalBaseLine(child);
+            updateAlphaAndScale(child);
+        }
         return baseLine;
     }
 
@@ -734,8 +829,8 @@ public class LitePager extends ViewGroup {
                     case 0:
                     case 1:
                         setAsBottom(child);
-                        lp.alpha = mMinAlpha;
-                        lp.scale = mMinScale;
+                        lp.alpha = mMiddleAlpha;
+                        lp.scale = mMiddleScale;
                         break;
                     case 2:
                         float alphaProgress;
@@ -744,8 +839,8 @@ public class LitePager extends ViewGroup {
                         } else {
                             alphaProgress = 0;
                         }
-                        lp.alpha = mMinAlpha + (mMaxAlpha - mMinAlpha) * alphaProgress;
-                        lp.scale = mMinScale + (mMaxScale - mMinScale) * mOffsetPercent;
+                        lp.alpha = mMiddleAlpha + (mTopAlpha - mMiddleAlpha) * alphaProgress;
+                        lp.scale = mMiddleScale + (mTopScale - mMiddleScale) * mOffsetPercent;
                         break;
                 }
                 break;
@@ -754,8 +849,8 @@ public class LitePager extends ViewGroup {
                     case 0:
                     case 1:
                         setAsBottom(child);
-                        lp.alpha = mMinAlpha;
-                        lp.scale = mMinScale;
+                        lp.alpha = mMiddleAlpha;
+                        lp.scale = mMiddleScale;
                         break;
                     case 2:
                         float alphaProgress;
@@ -765,8 +860,8 @@ public class LitePager extends ViewGroup {
                         } else {
                             alphaProgress = 0;
                         }
-                        lp.alpha = mMinAlpha + (mMaxAlpha - mMinAlpha) * alphaProgress;
-                        lp.scale = mMinScale + (mMaxScale - mMinScale) * -mOffsetPercent;//因为mOffsetProgress此时是负数
+                        lp.alpha = mMiddleAlpha + (mTopAlpha - mMiddleAlpha) * alphaProgress;
+                        lp.scale = mMiddleScale + (mTopScale - mMiddleScale) * -mOffsetPercent;//因为mOffsetProgress此时是负数
                         break;
                 }
                 break;
@@ -780,8 +875,8 @@ public class LitePager extends ViewGroup {
                     //后半段已经不需要了
                     alphaProgress = 1F;
                 }
-                lp.alpha = mMaxAlpha - (mMaxAlpha - mMinAlpha) * alphaProgress;
-                lp.scale = mMaxScale - (mMaxScale - mMinScale) * Math.abs(mOffsetPercent);
+                lp.alpha = mTopAlpha - (mTopAlpha - mMiddleAlpha) * alphaProgress;
+                lp.scale = mTopScale - (mTopScale - mMiddleScale) * Math.abs(mOffsetPercent);
                 break;
         }
     }
@@ -791,6 +886,202 @@ public class LitePager extends ViewGroup {
      */
     private void setAsBottom(View child) {
         exchangeOrder(indexOfChild(child), 0);
+    }
+
+    private int getHorizontalBaseLineBy5Child(View child) {
+        return getBaseLineBy5Child(child, getWidth() / 6);
+    }
+
+    private int getVerticalBaseLineBy5Child(View child) {
+        return getBaseLineBy5Child(child, getHeight() / 6);
+    }
+
+    private int getBaseLineBy5Child(View child, int itemDistance) {
+        int baseLine = 0;
+        int child0Line, child1Line, child2Line, child3Line, child4Line;
+        child0Line = itemDistance;
+        child2Line = itemDistance * 2;
+        child4Line = itemDistance * 3;
+        child3Line = itemDistance * 4;
+        child1Line = itemDistance * 5;
+        LayoutParams lp = (LayoutParams) child.getLayoutParams();
+        int offset = (int) (itemDistance * mOffsetPercent);
+        switch (lp.from) {
+            case 0:
+                switch (lp.to) {
+                    case 1:
+                        baseLine = child0Line - offset * 4;
+                        break;
+                    case 2:
+                        baseLine = child0Line + offset;
+                        break;
+                    default:
+                        baseLine = child0Line;
+                        break;
+                }
+                break;
+            case 1:
+                switch (lp.to) {
+                    case 0:
+                        baseLine = child1Line - offset * 4;
+                        break;
+                    case 3:
+                        baseLine = child1Line + offset;
+                        break;
+                    default:
+                        baseLine = child1Line;
+                        break;
+                }
+                break;
+            case 2:
+                switch (lp.to) {
+                    case 0:
+                    case 4:
+                        baseLine = child2Line + offset;
+                        break;
+                    default:
+                        baseLine = child2Line;
+                        break;
+                }
+                break;
+            case 3:
+                switch (lp.to) {
+                    case 1:
+                    case 4:
+                        baseLine = child3Line + offset;
+                        break;
+                    default:
+                        baseLine = child3Line;
+                        break;
+                }
+                break;
+            case 4:
+                switch (lp.to) {
+                    case 2:
+                    case 3:
+                        baseLine = child4Line + offset;
+                        break;
+                    default:
+                        baseLine = child4Line;
+                        break;
+                }
+                break;
+            default:
+                break;
+        }
+        return baseLine;
+    }
+
+    /**
+     * 跟据子View的起始索引和目标索引来更新不透明度和缩放比例
+     *
+     * @param child 目标子View
+     */
+    private void updateAlphaAndScaleBy5Child(View child) {
+        LayoutParams lp = (LayoutParams) child.getLayoutParams();
+        switch (lp.from) {
+            case 0:
+                updateAlphaAndScaleBy5Child(child, lp, mOffsetPercent);
+                break;
+            case 1:
+                updateAlphaAndScaleBy5Child(child, lp, -mOffsetPercent);
+                break;
+            case 2:
+                updateAlphaAndScale2(lp, mOffsetPercent);
+                break;
+            case 3:
+                //刚好跟上面相反，因为当上面变得更不透明时，它会变得更透明
+                updateAlphaAndScale2(lp, -mOffsetPercent);
+                break;
+            case 4:
+                float absOffsetPercent = Math.abs(mOffsetPercent);
+                float alphaProgress;
+                //因为现在是在中间，所以要在前半段就改变透明度
+                if (absOffsetPercent < .5F) {
+                    alphaProgress = absOffsetPercent * 2;
+                } else {
+                    //后半段已经不需要了
+                    alphaProgress = 1F;
+                }
+                lp.alpha = mTopAlpha - (mTopAlpha - mMiddleAlpha) * alphaProgress;
+                lp.scale = mTopScale - (mTopScale - mMiddleScale) * Math.abs(mOffsetPercent);
+                break;
+        }
+    }
+
+    private void updateAlphaAndScale2(LayoutParams lp, float offsetPercent) {
+        float alphaProgress;
+        if (Math.abs(offsetPercent) > .5F) {
+            alphaProgress = (Math.abs(offsetPercent) - .5F) * 2;
+        } else {
+            alphaProgress = 0;
+        }
+        switch (lp.to) {
+            case 0:
+            case 1:
+                lp.alpha = mMiddleAlpha + (mMiddleAlpha - mBottomAlpha) * -alphaProgress;
+                lp.scale = mMiddleScale + (mMiddleScale - mBottomScale) * offsetPercent;
+                break;
+            case 4:
+                lp.alpha = mMiddleAlpha + (mTopAlpha - mMiddleAlpha) * alphaProgress;
+                lp.scale = mMiddleScale + (mTopScale - mMiddleScale) * offsetPercent;
+                break;
+            default:
+                lp.alpha = mMiddleAlpha;
+                lp.scale = mMiddleScale;
+        }
+    }
+
+    private void updateAlphaAndScaleBy5Child(View child, LayoutParams lp, float offsetPercent) {
+        switch (lp.to) {
+            case 0:
+            case 1:
+                setAsBottomBy5Child(child);
+                lp.alpha = mBottomAlpha;
+                lp.scale = mBottomScale;
+                break;
+            default:
+                float alphaProgress;
+                if (offsetPercent > .5F) {
+                    alphaProgress = (offsetPercent - .5F) * 2;
+                } else {
+                    alphaProgress = 0;
+                }
+                lp.alpha = mBottomAlpha + (mMiddleAlpha - mBottomAlpha) * alphaProgress;
+                lp.scale = mBottomScale + (mMiddleScale - mBottomScale) * offsetPercent;
+                break;
+        }
+    }
+
+    /**
+     * 把目标子View放置到视图层级最底部
+     */
+    private void setAsBottomBy5Child(View target) {
+        //先确定现在在哪个位置
+        int startIndex = indexOfChild(target);
+        //计算一共需要几次交换，就可到达最下面
+        for (int i = startIndex; i >= 0; i--) {
+            //更新索引
+            int fromIndex = indexOfChild(target);
+            if (fromIndex == 0) {
+                break;
+            }
+            //目标是它的下层
+            int toIndex = fromIndex - 1;
+            //获取需要交换位置的两个子View
+            View from = target;
+            View to = getChildAt(toIndex);
+
+            //先把它们拿出来
+            detachViewFromParent(fromIndex);
+            detachViewFromParent(toIndex);
+
+            //再放回去，但是放回去的位置(索引)互换了
+            attachViewToParent(from, toIndex, from.getLayoutParams());
+            attachViewToParent(to, fromIndex, to.getLayoutParams());
+        }
+        //刷新
+        invalidate();
     }
 
     /**
@@ -825,6 +1116,10 @@ public class LitePager extends ViewGroup {
      */
     private boolean isHorizontal() {
         return mOrientation == ORIENTATION_HORIZONTAL;
+    }
+
+    private boolean is5Child() {
+        return getChildCount() > 3;
     }
 
     /**
@@ -872,17 +1167,20 @@ public class LitePager extends ViewGroup {
     @Override
     public void addView(View child, int index, ViewGroup.LayoutParams params) {
         int childCount = getChildCount();
-        if (childCount > 2) {
-            throw new IllegalStateException("LitePager can only contain 3 child!");
+        if (childCount > 4) {
+            throw new IllegalStateException("LitePager can only contain 5 child!");
         }
         LayoutParams lp = params instanceof LayoutParams ? (LayoutParams) params : new LayoutParams(params);
         lp.from = index == -1 ? childCount : index;
         if (childCount < 2) {
-            lp.alpha = mMinAlpha;
-            lp.scale = mMinScale;
+            lp.alpha = mMiddleAlpha;
+            lp.scale = mMiddleScale;
+        } else if (childCount < 4) {
+            lp.alpha = mBottomAlpha;
+            lp.scale = mBottomScale;
         } else {
-            lp.alpha = mMaxAlpha;
-            lp.scale = mMaxScale;
+            lp.alpha = mTopAlpha;
+            lp.scale = mTopScale;
         }
         super.addView(child, index, params);
     }
@@ -912,32 +1210,54 @@ public class LitePager extends ViewGroup {
     /**
      * 设置最小缩放比例
      */
-    public void setMinScale(@FloatRange(from = 0, to = 1) float scale) {
-        mMinScale = scale;
+    public void setBottomScale(@FloatRange(from = 0, to = 1) float scale) {
+        mBottomScale = scale;
+        if (!is5Child()) {
+            mMiddleScale = scale;
+        }
         requestLayout();
     }
 
     /**
      * 设置最小不透明度
      */
-    public void setMinAlpha(@FloatRange(from = 0, to = 1) float alpha) {
-        mMinAlpha = alpha;
+    public void setBottomAlpha(@FloatRange(from = 0, to = 1) float alpha) {
+        mBottomAlpha = alpha;
+        if (!is5Child()) {
+            mMiddleAlpha = alpha;
+        }
         requestLayout();
     }
 
     /**
      * 设置最大缩放比例
      */
-    public void setMaxScale(@FloatRange(from = 0, to = 1) float scale) {
-        mMaxScale = scale;
+    public void setTopScale(@FloatRange(from = 0, to = 1) float scale) {
+        mTopScale = scale;
         requestLayout();
     }
 
     /**
      * 设置最大不透明度
      */
-    public void setMaxAlpha(@FloatRange(from = 0, to = 1) float alpha) {
-        mMaxAlpha = alpha;
+    public void setTopAlpha(@FloatRange(from = 0, to = 1) float alpha) {
+        mTopAlpha = alpha;
+        requestLayout();
+    }
+
+    /**
+     * 设置中部缩放比例
+     */
+    public void setMiddleScale(@FloatRange(from = 0, to = 1) float scale) {
+        mMiddleScale = scale;
+        requestLayout();
+    }
+
+    /**
+     * 设置中部不透明度
+     */
+    public void setMiddleAlpha(@FloatRange(from = 0, to = 1) float alpha) {
+        mMiddleAlpha = alpha;
         requestLayout();
     }
 
