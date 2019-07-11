@@ -553,14 +553,28 @@ public class LitePager extends ViewGroup {
         return points[0] >= 0 && points[1] >= 0 && points[0] < view.getWidth() && points[1] < view.getHeight();
     }
 
+    private float mInterceptLastX, mInterceptLastY;
+
     @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
-            getParent().requestDisallowInterceptTouchEvent(true);
-        } else if (ev.getAction() == MotionEvent.ACTION_UP) {
-            getParent().requestDisallowInterceptTouchEvent(false);
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        float x = event.getX(), y = event.getY();
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                mInterceptLastX = x;
+                mInterceptLastY = y;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                float offset = isHorizontal() ? x - mInterceptLastX : y - mInterceptLastY;
+                //判断是否触发拖动事件
+                if (Math.abs(offset) > mTouchSlop) {
+                    getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+                getParent().requestDisallowInterceptTouchEvent(false);
+                break;
         }
-        return super.dispatchTouchEvent(ev);
+        return super.dispatchTouchEvent(event);
     }
 
     @Override
