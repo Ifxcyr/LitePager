@@ -7,8 +7,10 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Matrix;
+import android.support.annotation.CallSuper;
 import android.support.annotation.FloatRange;
 import android.support.annotation.IntDef;
+import android.support.annotation.IntRange;
 import android.support.annotation.LayoutRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -33,10 +35,13 @@ import java.util.List;
  * @since 2019-04-07 下午3:29
  */
 @SuppressWarnings("unused")
-public class LitePager extends ViewGroup {
+public class LitePager extends ViewGroup implements Runnable {
 
     private static final float DEFAULT_TOP_SCALE = 1;
     private static final float DEFAULT_TOP_ALPHA = 1;
+
+    private static final int DEFAULT_SCROLL_INTERVAL = 5000;
+    private static final int DEFAULT_FLING_DURATION = 400;
 
     private static final float DEFAULT_MIDDLE_SCALE = .8F;
     private static final float DEFAULT_MIDDLE_ALPHA = .4F;
@@ -44,10 +49,27 @@ public class LitePager extends ViewGroup {
     private static final float DEFAULT_BOTTOM_SCALE = .6F;
     private static final float DEFAULT_BOTTOM_ALPHA = .2F;
 
+    public static final int ORIENTATION_HORIZONTAL = 0;//水平方向
+    public static final int ORIENTATION_VERTICAL = 1;//垂直方向
+
     @IntDef({ORIENTATION_HORIZONTAL, ORIENTATION_VERTICAL})
     @Retention(RetentionPolicy.SOURCE)
     private @interface Orientation {
     }
+
+    private static final int SCROLL_ORIENTATION_LEFT = 0;
+    private static final int SCROLL_ORIENTATION_RIGHT = 1;
+    private static final int SCROLL_ORIENTATION_UP = 0;
+    private static final int SCROLL_ORIENTATION_DOWN = 1;
+
+    @IntRange(from = 0, to = 1)
+    @Retention(RetentionPolicy.SOURCE)
+    private @interface ScrollOrientation {
+    }
+
+    private boolean mAutoScrollEnable;
+    private int mAutoScrollOrientation;
+    private long mAutoScrollInterval;
 
     public static final int STATE_IDLE = 0;//静止状态
 
@@ -61,8 +83,6 @@ public class LitePager extends ViewGroup {
     public static final int STATE_SETTLING_TOP = 7;//向上调整
     public static final int STATE_SETTLING_BOTTOM = 8;//向下调整
 
-    public static final int ORIENTATION_HORIZONTAL = 0;//水平方向
-    public static final int ORIENTATION_VERTICAL = 1;//垂直方向
     private int mCurrentState;//当前状态
     private int mOrientation;//当前方向
     private int mTouchSlop;//触发滑动的最小距离
@@ -78,6 +98,7 @@ public class LitePager extends ViewGroup {
     private boolean isAnotherActionDown;//是不是有另外的手指按下
     private VelocityTracker mVelocityTracker;
     private ValueAnimator mAnimator;
+    private Adapter mAdapter;
 
     private OnScrollListener mOnScrollListener;
     private OnItemSelectedListener mOnItemSelectedListener;
@@ -100,7 +121,7 @@ public class LitePager extends ViewGroup {
     private void initAttrs(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.LitePager, defStyleAttr, 0);
         mOrientation = a.getInteger(R.styleable.LitePager_orientation, ORIENTATION_HORIZONTAL);
-        mFlingDuration = a.getInteger(R.styleable.LitePager_flingDuration, 400);
+        mFlingDuration = a.getInteger(R.styleable.LitePager_flingDuration, DEFAULT_FLING_DURATION);
 
         mTopScale = a.getFloat(R.styleable.LitePager_topScale, DEFAULT_TOP_SCALE);
         mTopAlpha = a.getFloat(R.styleable.LitePager_topAlpha, DEFAULT_TOP_ALPHA);
@@ -110,8 +131,15 @@ public class LitePager extends ViewGroup {
 
         mBottomScale = a.getFloat(R.styleable.LitePager_bottomScale, DEFAULT_BOTTOM_SCALE);
         mBottomAlpha = a.getFloat(R.styleable.LitePager_bottomAlpha, DEFAULT_BOTTOM_ALPHA);
+
+        mAutoScrollEnable = a.getBoolean(R.styleable.LitePager_autoScroll, false);
+        mAutoScrollOrientation = a.getInteger(R.styleable.LitePager_autoScrollOrientation, SCROLL_ORIENTATION_LEFT);
+        mAutoScrollInterval = a.getInteger(R.styleable.LitePager_autoScrollInterval, DEFAULT_SCROLL_INTERVAL);
+
         a.recycle();
         fixOverflow();
+
+
     }
 
     /**
@@ -191,6 +219,7 @@ public class LitePager extends ViewGroup {
                     end = isHorizontal() ? getWidth() : getHeight();
                     break;
                 case 1:
+                    //noinspection DuplicateBranchesInSwitch
                     isNeedPlayTwice = index != mSelectedIndex;
                 case 3:
                     end = isHorizontal() ? -getWidth() : -getHeight();
@@ -221,11 +250,13 @@ public class LitePager extends ViewGroup {
         }
         float start, end;
         mVelocityTracker.computeCurrentVelocity(1000);
+        float velocityX = mVelocityTracker.getXVelocity();
+        float velocityY = mVelocityTracker.getYVelocity();
+        mVelocityTracker.clear();
         if (isHorizontal()) {
             start = mOffsetX;
-            float velocityX = mVelocityTracker.getXVelocity();
             //优先根据滑动速率来判断，处理在Fixing的时候手指往相反方向快速滑动
-            if (Math.abs(velocityX) > 1000) {
+            if (Math.abs(velocityX) > Math.abs(velocityY) && Math.abs(velocityX) > 1000) {
                 end = velocityX < 0 ? -getWidth() : getWidth();
             } else if (Math.abs(mOffsetPercent) > .5F) {
                 end = mOffsetPercent < 0 ? -getWidth() : getWidth();
@@ -234,9 +265,8 @@ public class LitePager extends ViewGroup {
             }
         } else {
             start = mOffsetY;
-            float velocityY = mVelocityTracker.getYVelocity();
             //优先根据滑动速率来判断，处理在Fixing的时候手指往相反方向快速滑动
-            if (Math.abs(velocityY) > 1000) {
+            if (Math.abs(velocityY) > Math.abs(velocityX) && Math.abs(velocityY) > 1000) {
                 end = velocityY < 0 ? -getHeight() : getHeight();
             } else if (Math.abs(mOffsetPercent) > .5F) {
                 end = mOffsetPercent < 0 ? -getHeight() : getHeight();
@@ -311,6 +341,13 @@ public class LitePager extends ViewGroup {
                     }
                     if (mOnItemSelectedListener != null) {
                         mOnItemSelectedListener.onItemSelected(getSelectedChild());
+                    }
+                }
+                if (mPostOnAnimationEnd) {
+                    mPostOnAnimationEnd = false;
+                    if (mTempAdapter != null) {
+                        updateAdapterDataNow(mTempAdapter);
+                        mTempAdapter = null;
                     }
                 }
             }
@@ -562,14 +599,17 @@ public class LitePager extends ViewGroup {
             case MotionEvent.ACTION_DOWN:
                 mInterceptLastX = x;
                 mInterceptLastY = y;
+                getParent().requestDisallowInterceptTouchEvent(true);
                 break;
             case MotionEvent.ACTION_MOVE:
-                float offset = isHorizontal() ? x - mInterceptLastX : y - mInterceptLastY;
-                //判断是否触发拖动事件
-                if (Math.abs(offset) > mTouchSlop) {
-                    getParent().requestDisallowInterceptTouchEvent(true);
+                float offsetX = Math.abs(x - mInterceptLastX);
+                float offsetY = Math.abs(y - mInterceptLastY);
+                if (isHorizontal() ? offsetY > offsetX && offsetY > mTouchSlop : offsetX >= offsetY && offsetX > mTouchSlop) {
+                    getParent().requestDisallowInterceptTouchEvent(false);
                 }
                 break;
+            case MotionEvent.ACTION_CANCEL:
+            case MotionEvent.ACTION_OUTSIDE:
             case MotionEvent.ACTION_UP:
                 getParent().requestDisallowInterceptTouchEvent(false);
                 break;
@@ -603,10 +643,10 @@ public class LitePager extends ViewGroup {
                 if (isAnotherActionDown) {
                     return false;
                 }
-                float offsetX = x - mLastX;
-                float offsetY = y - mLastY;
+                float offsetX = Math.abs(x - mLastX);
+                float offsetY = Math.abs(y - mLastY);
                 //判断是否触发拖动事件
-                if (Math.abs(offsetX) > mTouchSlop || Math.abs(offsetY) > mTouchSlop) {
+                if (isHorizontal() ? offsetX >= offsetY && offsetX > mTouchSlop : offsetY > offsetX && offsetY > mTouchSlop) {
                     mLastX = x;
                     mLastY = y;
                     isBeingDragged = true;
@@ -1214,6 +1254,62 @@ public class LitePager extends ViewGroup {
         return new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
     }
 
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (mAutoScrollEnable) {
+            run();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (mAutoScrollEnable) {
+            removeCallbacks(this);
+        }
+    }
+
+    @Override
+    public void run() {
+        if (mAutoScrollOrientation == SCROLL_ORIENTATION_LEFT) {
+            setSelection(is5Child() ? 2 : 0);
+        } else {
+            setSelection(is5Child() ? 3 : 1);
+        }
+        if (mAutoScrollEnable) {
+            postDelayed(this, mAutoScrollInterval);
+        }
+    }
+
+    private boolean mPostOnAnimationEnd;
+    private Adapter mTempAdapter;
+
+    private void setAdapterInternal(Adapter adapter) {
+        if (mAnimator.isRunning()) {
+            mTempAdapter = adapter;
+            mPostOnAnimationEnd = true;
+        } else {
+            updateAdapterDataNow(adapter);
+        }
+    }
+
+    private void updateAdapterDataNow(Adapter adapter) {
+        removeAllViews();
+        for (int i = 0; i < adapter.getItemCount(); i++) {
+            View view = adapter.onCreateView(this);
+            //noinspection unchecked
+            adapter.onBindView(view, i);
+            ViewGroup.LayoutParams lp = view.getLayoutParams();
+            if (lp != null) {
+                if (!(lp instanceof LayoutParams)) {
+                    view.setLayoutParams(new LayoutParams(lp));
+                }
+            }
+            addView(view);
+        }
+    }
+
     /**
      * 设置调整动画的时长
      */
@@ -1318,6 +1414,91 @@ public class LitePager extends ViewGroup {
 
     public interface OnItemSelectedListener {
         void onItemSelected(View selectedItem);
+    }
+
+    /**
+     * 设置是否开启自动轮播
+     */
+    public LitePager setAutoScrollEnable(boolean enable) {
+        if (mAutoScrollEnable != enable) {
+            mAutoScrollEnable = enable;
+            if (enable) {
+                postDelayed(this, mAutoScrollInterval);
+            } else {
+                removeCallbacks(this);
+            }
+        }
+        return this;
+    }
+
+    /**
+     * 设置轮播间隔
+     *
+     * @param interval 毫秒，默认：5000
+     */
+    public LitePager setAutoScrollInterval(long interval) {
+        mAutoScrollInterval = interval;
+        return this;
+    }
+
+    /**
+     * 设置轮播方向 {@link ScrollOrientation}
+     *
+     * @param orientation 方向
+     */
+    public LitePager setAutoScrollOrientation(@ScrollOrientation int orientation) {
+        mAutoScrollOrientation = orientation;
+        return this;
+    }
+
+    public boolean isAutoScrollEnable() {
+        return mAutoScrollEnable;
+    }
+
+    public long getAutoScrollInterval() {
+        return mAutoScrollInterval;
+    }
+
+    public int getAutoScrollOrientation() {
+        return mAutoScrollOrientation;
+    }
+
+    /**
+     * 设置适配器
+     *
+     * @param adapter 适配器
+     */
+    public LitePager setAdapter(Adapter adapter) {
+        if (mAdapter != null) {
+            mAdapter.mLitePager = null;
+        }
+        mAdapter = adapter;
+        mAdapter.mLitePager = this;
+        setAdapterInternal(mAdapter);
+        return this;
+    }
+
+    public Adapter getAdapter() {
+        return mAdapter;
+    }
+
+    @SuppressWarnings("WeakerAccess")
+    public static abstract class Adapter<V extends View> {
+
+        private LitePager mLitePager;
+
+        @CallSuper
+        public void notifyDataSetChanged() {
+            if (mLitePager != null) {
+                mLitePager.setAdapterInternal(this);
+            }
+        }
+
+        protected abstract V onCreateView(@NonNull ViewGroup parent);
+
+        protected abstract void onBindView(@NonNull V v, int position);
+
+        protected abstract int getItemCount();
     }
 
     static class LayoutParams extends MarginLayoutParams {

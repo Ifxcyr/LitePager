@@ -13,5 +13,14 @@
         <attr name="middleAlpha" format="float" />
         <attr name="topScale" format="float" />
         <attr name="topAlpha" format="float" />
+        <attr name="autoScroll" format="boolean" />
+        <attr name="autoScrollInterval" format="integer" />
+        <attr name="autoScrollOrientation" format="enum">
+            <enum name="left" value="0" />
+            <enum name="right" value="1" />
+            <enum name="up" value="0" />
+            <enum name="down" value="1" />
+        </attr>
+
     </declare-styleable>
 </resources>
