@@ -1286,7 +1286,7 @@ public class LitePager extends ViewGroup implements Runnable {
     private Adapter mTempAdapter;
 
     private void setAdapterInternal(Adapter adapter) {
-        if (mAnimator.isRunning()) {
+        if (mAnimator != null && mAnimator.isRunning()) {
             mTempAdapter = adapter;
             mPostOnAnimationEnd = true;
         } else {
@@ -1471,6 +1471,11 @@ public class LitePager extends ViewGroup implements Runnable {
     public LitePager setAdapter(Adapter adapter) {
         if (mAdapter != null) {
             mAdapter.mLitePager = null;
+        }
+        if (adapter == null) {
+            mAdapter = null;
+            removeAllViews();
+            return this;
         }
         mAdapter = adapter;
         mAdapter.mLitePager = this;
